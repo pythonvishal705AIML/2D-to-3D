@@ -1,0 +1,90 @@
+import cv2
+import numpy as np
+
+def estimate_depth(frame):
+    """Simple depth estimation using gradient-based method."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Using Sobel operator to compute gradients
+    grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+    grad_mag = cv2.magnitude(grad_x, grad_y)
+    
+    # Normalize the gradient magnitude to a range [0, 255]
+    depth_map = cv2.normalize(grad_mag, None, 0, 255, cv2.NORM_MINMAX)
+    
+    return depth_map.astype(np.uint8)
+
+def generate_stereo_view(frame, depth_map, max_disp=20):
+    """Generate left and right views by applying horizontal offsets based on depth map."""
+    h, w = frame.shape[:2]
+    
+    # Apply horizontal displacement to simulate depth
+    left_view = np.zeros_like(frame)
+    right_view = np.zeros_like(frame)
+
+    for y in range(h):
+        for x in range(w):
+            disp = int(depth_map[y, x] / 255 * max_disp)  # Disparity based on depth map
+            left_x = max(x - disp, 0)
+            right_x = min(x + disp, w - 1)
+            
+            left_view[y, left_x] = frame[y, x]
+            right_view[y, right_x] = frame[y, x]
+    
+    return left_view, right_view
+
+def create_anaglyph(left_view, right_view):
+    """Create anaglyph 3D by combining the left and right views."""
+    anaglyph = np.zeros_like(left_view)
+    anaglyph[:, :, 0] = left_view[:, :, 0]  # Red channel from left view
+    anaglyph[:, :, 1] = right_view[:, :, 1]  # Green channel from right view
+    anaglyph[:, :, 2] = right_view[:, :, 2]  # Blue channel from right view
+    return anaglyph
+
+def process_video(input_video_path, output_video_path):
+    # Open the input video
+    cap = cv2.VideoCapture(input_video_path)
+    
+    # Get video properties
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # Create VideoWriter to save output
+    out = cv2.VideoWriter(output_video_path, fourcc, fps, (frame_width, frame_height))
+    
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        # Step 1: Estimate depth map for the current frame
+        depth_map = estimate_depth(frame)
+        
+        # Step 2: Generate left and right views
+        left_view, right_view = generate_stereo_view(frame, depth_map)
+        
+        # Step 3: Combine views to create anaglyph 3D image
+        anaglyph_frame = create_anaglyph(left_view, right_view)
+        
+        # Write the anaglyph frame to the output video
+        out.write(anaglyph_frame)
+        
+        # Display the current frame (optional, for real-time preview)
+        cv2.imshow('Anaglyph 3D', anaglyph_frame)
+        
+        # Break the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    # Release everything once the job is finished
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()
+
+# Example usage
+input_video_path = r'C:\Users\admin\Downloads\test.mp4'  # Path to your input 2D video
+output_video_path = 'output_3d_video.avi'  # Path to save the output 3D video
+
+process_video(input_video_path, output_video_path)
